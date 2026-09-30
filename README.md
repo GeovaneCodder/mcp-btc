@@ -1,66 +1,98 @@
-# BTC MCP + Docker
+# MCP Bitcoin — simples e completo
 
-MVP técnico para fornecer dados de BTC a um LLM via MCP e exibir um dashboard web reativo.
+Este projeto coleta dados do Bitcoin e entrega tudo para um LLM através de MCP.
 
-## Arquitetura
+A ideia é simples:
 
-Binance REST
-   ↓
-collector
-   ↓
-Redis + PostgreSQL
-   ├──→ predictor
-   ├──→ MCP Server
-   └──→ dashboard (WebSocket)
+**fontes de dados → collector → Redis/PostgreSQL → MCP → LLM**
 
-O collector publica cada snapshot no canal Redis `btc:updates`. O backend FastAPI do dashboard assina esse canal e entrega os dados ao Vue via WebSocket.
+## O que o MCP entrega
 
-## Dashboard
+### Mercado
+- **Preço atual** — quanto 1 BTC vale agora.
+- **Volume** — quanto foi negociado nas últimas 24 horas.
+- **Order book** — ordens de compra e venda próximas do preço.
+- **Spread** — diferença entre a melhor compra e a melhor venda.
+- **Funding rate** — custo periódico entre posições compradas e vendidas em futuros.
+- **Open interest** — quantidade de contratos futuros ainda abertos.
+- **Liquidações** — posições de futuros encerradas à força.
 
-Stack:
-- Vue 3 + TypeScript + Vite
-- Pinia
-- FastAPI
-- Redis Pub/Sub + WebSocket
-- Docker
+### Volatilidade
+Mede o quanto o preço está variando. Quanto maior, maior a oscilação recente.
 
-Subir tudo:
+### Opções
+O projeto consulta a Deribit para obter calls, puts, open interest, volume e volatilidade implícita (IV).
 
-```bash
-docker compose up --build
-```
+### Grandes carteiras
+Com **Glassnode** ou **Whale Alert**, o MCP pode acompanhar grandes movimentações de BTC.
 
-Dashboard: http://localhost:8080
+### Entrada e saída das exchanges
+Com **Glassnode**: BTC entrando, BTC saindo e saldo líquido das exchanges.
 
-MCP: http://localhost:8000/mcp
-Prediction API: http://localhost:8001
-Prediction: http://localhost:8001/predict/4h
-Snapshot: http://localhost:8001/snapshot
+### Dados on-chain
+Com **mempool.space**: taxas recomendadas, situação do mempool e hashrate da rede.
 
-## Ferramentas MCP
+### Notícias
+Notícias recentes sobre Bitcoin são coletadas via Google News RSS.
 
-- `get_btc_market_snapshot`
-- `get_btc_history`
-- `get_btc_features`
-- `predict_btc_4h`
+### Sentimento das redes sociais
+Com **LunarCrush**: sentimento, volume social, interações e atividade agregada de redes como X, Reddit e YouTube.
+
+### Correlação
+O MCP calcula a correlação do BTC com ETH, S&P 500, Nasdaq e Dólar (DXY), usando retornos diários dos últimos 30 dias.
+
+## Ferramenta principal do MCP
+
+A ferramenta mais simples para usar com um LLM é **get_btc_market_data**. Ela retorna todas as informações em um único objeto.
+
+Também existem:
+- **get_btc_market_snapshot** — somente os números principais.
+- **get_btc_history** — histórico dos snapshots.
+- **get_btc_features** — indicadores simples.
+- **predict_btc_4h** — baseline estatístico de 4 horas.
+
+## Subir com Docker
+
+    docker compose up --build
+
+Depois:
+- MCP: http://localhost:8000/mcp
+- API de previsão: http://localhost:8001
+- Snapshot: http://localhost:8001/snapshot
+- Previsão: http://localhost:8001/predict/4h
+
+## Chaves opcionais
+
+O projeto funciona sem chaves para os dados públicos principais.
+
+Crie um arquivo `.env` com:
+
+    GLASSNODE_API_KEY=
+    LUNARCRUSH_API_KEY=
+    WHALE_ALERT_API_KEY=
+
+Depois execute:
+
+    docker compose up --build
+
+Se uma chave não estiver configurada, o MCP informa **não configurado** em vez de quebrar o sistema.
+
+## Para testar
+
+    curl http://localhost:8001/snapshot
+    curl http://localhost:8001/predict/4h
 
 ## Importante
 
-Este é um MVP técnico/educacional. O modelo de previsão é somente um baseline de momentum e não foi validado para trading. O dashboard não executa ordens.
+Este projeto é **educacional**. Os dados servem para análise e alimentação de um LLM. A previsão de 4 horas é apenas um baseline estatístico e **não é uma previsão financeira validada nem recomendação de compra ou venda**.
 
-O order book atualmente representa top-of-book e liquidez agregada; os níveis individuais ainda não são persistidos para exibição de profundidade.
+## Fontes
 
-## Próximos passos
-
-1. WebSockets nativos para trades/order book no collector.
-2. Dados reais de liquidação.
-3. Histórico de Open Interest e Funding.
-4. Bybit/Coinbase.
-5. Dados on-chain.
-6. Opções e IV.
-7. Notícias e sentimento.
-8. Features com janelas temporais.
-9. XGBoost/LightGBM.
-10. Backtesting walk-forward.
-11. Calibração probabilística.
-12. Monitoramento de drift.
+- Binance — mercado, order book, funding, open interest e liquidações.
+- Deribit — opções.
+- mempool.space — dados da rede Bitcoin.
+- Google News — notícias.
+- LunarCrush — sentimento social, quando configurado.
+- Glassnode — métricas on-chain, fluxo de exchanges e baleias, quando configurado.
+- Whale Alert — grandes transações, quando configurado.
+- Yahoo Finance — séries usadas para correlação com ETH, S&P 500, Nasdaq e DXY.
