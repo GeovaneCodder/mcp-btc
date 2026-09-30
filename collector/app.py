@@ -1,4 +1,4 @@
-import os, time, asyncio, json
+import os, asyncio, json
 from datetime import datetime, timezone
 import httpx, redis, psycopg
 
@@ -47,8 +47,9 @@ async def collect():
             "liquidation_short": 0.0
         }
 
-        r.set("btc:latest", json.dumps(snapshot))
-        r.lpush("btc:snapshots", json.dumps(snapshot))
+        payload = json.dumps(snapshot)
+        r.set("btc:latest", payload)
+        r.lpush("btc:snapshots", payload)
         r.ltrim("btc:snapshots", 0, 20000)
 
         with psycopg.connect(DATABASE_URL) as conn:
@@ -64,7 +65,8 @@ async def collect():
             """, snapshot)
             conn.commit()
 
-        print(json.dumps(snapshot), flush=True)
+        r.publish("btc:updates", payload)
+        print(payload, flush=True)
 
 async def main():
     while True:
