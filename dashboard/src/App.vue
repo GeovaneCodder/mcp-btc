@@ -110,7 +110,7 @@ onMounted(async () => {
     </section>
 
     <section class="grid lower">
-      <article class="card">
+      <article class="card" style="padding: 20px;">
         <div class="section-head"><div><span class="label">Derivatives</span><h2>Market metrics</h2></div></div>
         <div class="metrics">
           <div><span>Funding rate</span><strong>{{ pct(store.snapshot?.funding_rate) }}</strong></div>
@@ -132,6 +132,6 @@ onMounted(async () => {
       </article>
     </section>
 
-    <footer>Dados coletados pelo serviço Python · Dashboard reativo via WebSocket · Sem execução de ordens</footer>
+    <footer>geovanecodder@gmail.com</footer>
   </main>
 </template>
