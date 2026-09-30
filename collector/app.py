@@ -412,6 +412,7 @@ async def collect():
         previous = r.get("btc:latest")
         previous_data = json.loads(previous) if previous else {}
         refresh_extra = time.time() - float(r.get("btc:extras_ts") or 0) >= 300
+        names = ["opcoes", "on_chain", "noticias", "sentimento_social", "grandes_carteiras", "fluxo_exchanges", "correlacoes"]
         extra = await asyncio.gather(
             get_options(client),
             get_onchain(client),
@@ -421,17 +422,7 @@ async def collect():
             get_exchange_flows(client),
             get_correlations(client),
             return_exceptions=True,
-        )
-
-        names = [
-            "opcoes",
-            "on_chain",
-            "noticias",
-            "sentimento_social",
-            "grandes_carteiras",
-            "fluxo_exchanges",
-            "correlacoes",
-        ]
+        ) if refresh_extra else [previous_data.get(name) for name in names]
 
         if refresh_extra:
             for name, value in zip(names, extra):
