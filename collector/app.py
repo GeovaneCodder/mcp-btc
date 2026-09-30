@@ -408,7 +408,10 @@ async def collect():
             },
         }
 
-        # Dados que não precisam ser consultados a cada 15 segundos.
+        # Dados externos mais lentos são atualizados a cada 5 minutos.
+        previous = r.get("btc:latest")
+        previous_data = json.loads(previous) if previous else {}
+        refresh_extra = time.time() - float(r.get("btc:extras_ts") or 0) >= 300
         extra = await asyncio.gather(
             get_options(client),
             get_onchain(client),
@@ -430,11 +433,14 @@ async def collect():
             "correlacoes",
         ]
 
-        for name, value in zip(names, extra):
-            snapshot[name] = (
-                value if not isinstance(value, Exception)
-                else {"status": "erro", "mensagem": str(value)}
-            )
+        if refresh_extra:
+            for name, value in zip(names, extra):
+                snapshot[name] = value if not isinstance(value, Exception) else {"status": "erro", "mensagem": str(value)}
+            r.set("btc:extras_ts", str(time.time()))
+        else:
+            for name in names:
+                if name in previous_data:
+                    snapshot[name] = previous_data[name]
 
         snapshot["volatilidade"] = calculate_volatility()
 
