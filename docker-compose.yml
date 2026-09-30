@@ -1,0 +1,66 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: btc_ai
+      POSTGRES_USER: btc
+      POSTGRES_PASSWORD: btc
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U btc -d btc_ai"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  collector:
+    build: ./collector
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://btc:btc@postgres:5432/btc_ai
+      SYMBOL: BTCUSDT
+      INTERVAL_SECONDS: 15
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  predictor:
+    build: ./predictor
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://btc:btc@postgres:5432/btc_ai
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  mcp:
+    build: ./mcp
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://btc:btc@postgres:5432/btc_ai
+      PREDICTOR_URL: http://predictor:8001
+    ports:
+      - "8000:8000"
+    depends_on:
+      predictor:
+        condition: service_started
+
+volumes:
+  postgres_data:
+  redis_data:
