@@ -258,6 +258,6 @@ onMounted(async () => {
       </article>
     </section>
 
-    <footer>Dados coletados pelo serviço Python · Painel atualizado em tempo real · Sem execução de ordens</footer>
+    <footer>geovanecodder@gmail.com - <a href="https://geovane-ashen.vercel.app" target="_blank">Portifólio</a></footer>
   </main>
 </template>
