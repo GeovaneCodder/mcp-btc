@@ -30,9 +30,6 @@ services:
       DATABASE_URL: postgresql://btc:btc@postgres:5432/btc_ai
       SYMBOL: BTCUSDT
       INTERVAL_SECONDS: 15
-      GLASSNODE_API_KEY: ${GLASSNODE_API_KEY:-}
-      LUNARCRUSH_API_KEY: ${LUNARCRUSH_API_KEY:-}
-      WHALE_ALERT_API_KEY: ${WHALE_ALERT_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
