@@ -30,6 +30,9 @@ services:
       DATABASE_URL: postgresql://btc:btc@postgres:5432/btc_ai
       SYMBOL: BTCUSDT
       INTERVAL_SECONDS: 15
+      GLASSNODE_API_KEY: ${GLASSNODE_API_KEY:-}
+      LUNARCRUSH_API_KEY: ${LUNARCRUSH_API_KEY:-}
+      WHALE_ALERT_API_KEY: ${WHALE_ALERT_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -59,19 +62,6 @@ services:
       - "8000:8000"
     depends_on:
       predictor:
-        condition: service_started
-
-  dashboard:
-    build: ./dashboard
-    environment:
-      REDIS_URL: redis://redis:6379/0
-      PREDICTOR_URL: http://predictor:8001
-    ports:
-      - "8080:8080"
-    depends_on:
-      predictor:
-        condition: service_started
-      redis:
         condition: service_started
 
 volumes:
