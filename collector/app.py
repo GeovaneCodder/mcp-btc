@@ -23,17 +23,20 @@ BINANCE_FUTURES = "https://fapi.binance.com"
 DERIBIT = "https://www.deribit.com/api/v2"
 MEMPOOL = "https://mempool.space/api"
 YAHOO = "https://query1.finance.yahoo.com/v8/finance/chart"
+REDDIT = "https://www.reddit.com"
 
 r = redis.from_url(REDIS_URL, decode_responses=True)
-
-GLASSNODE_API_KEY = os.getenv("GLASSNODE_API_KEY", "")
-LUNARCRUSH_API_KEY = os.getenv("LUNARCRUSH_API_KEY", "")
-WHALE_ALERT_API_KEY = os.getenv("WHALE_ALERT_API_KEY", "")
 
 
 async def get(client, url, params=None, headers=None):
     try:
-        response = await client.get(url, params=params, headers=headers, timeout=15)
+        response = await client.get(
+            url,
+            params=params,
+            headers=headers,
+            timeout=15,
+            follow_redirects=True,
+        )
         response.raise_for_status()
         return response.json()
     except Exception as exc:
@@ -49,31 +52,28 @@ def status(data, source):
 
 def calculate_volatility():
     raw = r.lrange("btc:snapshots", 0, 239)
-    prices = [json.loads(x)["price"] for x in raw]
+    prices = [json.loads(x)["price"] for x in raw if json.loads(x).get("price")]
     if len(prices) < 20:
         return {
             "status": "aguardando_historico",
-            "explicacao": "A volatilidade aparece depois de acumular alguns minutos de preços."
+            "explicacao": "A volatilidade aparece depois de acumular alguns minutos de preços.",
         }
 
-    prices = list(reversed(prices))
+    prices.reverse()
     returns = [
         math.log(prices[i] / prices[i - 1])
         for i in range(1, len(prices))
         if prices[i - 1] > 0
     ]
-
     if len(returns) < 2:
         return {"status": "aguardando_historico"}
 
-    # Coleta a cada 15s: 240 pontos ≈ 1 hora.
     value = statistics.pstdev(returns) * math.sqrt(len(returns)) * 100
-
     return {
         "status": "ok",
         "periodo": "aproximadamente 1 hora",
         "volatilidade_percentual": round(value, 4),
-        "explicacao": "Quanto maior o número, maior a variação recente do preço."
+        "explicacao": "Quanto maior o número, maior a oscilação recente do preço.",
     }
 
 
@@ -90,179 +90,181 @@ async def get_options(client):
     calls = [x for x in items if "-C" in x.get("instrument_name", "")]
     puts = [x for x in items if "-P" in x.get("instrument_name", "")]
 
-    def total(items, field):
-        return sum(float(x.get(field) or 0) for x in items)
+    def total(values, field):
+        return sum(float(x.get(field) or 0) for x in values)
 
-    def avg_iv(items):
-        values = [float(x["mark_iv"]) for x in items if x.get("mark_iv") is not None]
-        return round(statistics.mean(values), 2) if values else None
+    def avg_iv(values):
+        ivs = [float(x["mark_iv"]) for x in values if x.get("mark_iv") is not None]
+        return round(statistics.mean(ivs), 2) if ivs else None
 
-    result = {
-        "quantidade_instrumentos": len(items),
-        "calls": {
-            "quantidade": len(calls),
-            "open_interest": total(calls, "open_interest"),
-            "volume_24h": total(calls, "volume_usd"),
-            "iv_media": avg_iv(calls),
+    return status(
+        {
+            "quantidade_instrumentos": len(items),
+            "calls": {
+                "quantidade": len(calls),
+                "open_interest": total(calls, "open_interest"),
+                "volume_24h": total(calls, "volume_usd"),
+                "iv_media": avg_iv(calls),
+            },
+            "puts": {
+                "quantidade": len(puts),
+                "open_interest": total(puts, "open_interest"),
+                "volume_24h": total(puts, "volume_usd"),
+                "iv_media": avg_iv(puts),
+            },
+            "explicacao": "Opções mostram posicionamento do mercado para preços futuros. IV é a volatilidade implícita.",
         },
-        "puts": {
-            "quantidade": len(puts),
-            "open_interest": total(puts, "open_interest"),
-            "volume_24h": total(puts, "volume_usd"),
-            "iv_media": avg_iv(puts),
-        },
-        "explicacao": "Opções mostram como o mercado está se posicionando para preços futuros. IV é a volatilidade implícita.",
-    }
-    return status(result, "Deribit")
+        "Deribit",
+    )
 
 
 async def get_onchain(client):
-    fees, mempool, hashrate = await asyncio.gather(
+    fees, mempool, hashrate, recent = await asyncio.gather(
         get(client, f"{MEMPOOL}/v1/fees/recommended"),
         get(client, f"{MEMPOOL}/mempool"),
         get(client, f"{MEMPOOL}/v1/mining/hashrate/1m"),
+        get(client, f"{MEMPOOL}/mempool/recent"),
     )
-
     return {
         "status": "ok" if any(x is not None for x in [fees, mempool, hashrate]) else "indisponivel",
         "fonte": "mempool.space",
         "taxas_recomendadas": fees,
         "mempool": mempool,
         "hashrate": hashrate,
-        "explicacao": "Dados diretamente relacionados à atividade da rede Bitcoin."
+        "transacoes_recentes": recent,
+        "explicacao": "Dados públicos diretamente relacionados à atividade da rede Bitcoin.",
     }
 
 
 async def get_news(client):
-    url = (
-        "https://news.google.com/rss/search?"
-        "q=bitcoin&hl=pt-BR&gl=BR&ceid=BR:pt-419"
-    )
+    url = "https://news.google.com/rss/search?q=bitcoin&hl=pt-BR&gl=BR&ceid=BR:pt-419"
     try:
-        response = await client.get(url, timeout=15)
+        response = await client.get(url, timeout=15, follow_redirects=True)
         response.raise_for_status()
         root = ET.fromstring(response.text)
         news = []
         for item in root.findall("./channel/item")[:10]:
-            news.append({
-                "titulo": item.findtext("title"),
-                "link": item.findtext("link"),
-                "data": item.findtext("pubDate"),
-                "fonte": item.findtext("source"),
-            })
+            news.append(
+                {
+                    "titulo": item.findtext("title"),
+                    "link": item.findtext("link"),
+                    "data": item.findtext("pubDate"),
+                    "fonte": item.findtext("source"),
+                }
+            )
         return status(news, "Google News RSS")
     except Exception as exc:
         print(f"news error: {exc}", flush=True)
         return status(None, "Google News RSS")
 
 
-async def get_social_sentiment(client):
-    if not LUNARCRUSH_API_KEY:
-        return {
-            "status": "nao_configurado",
-            "fonte": "LunarCrush",
-            "explicacao": "Defina LUNARCRUSH_API_KEY para ativar sentimento de redes sociais."
-        }
+def sentiment_score(text):
+    positive = {
+        "alta", "subiu", "sobe", "ganho", "ganhos", "otimismo", "otimista",
+        "bullish", "positivo", "positiva", "recorde", "rali", "rally",
+        "compra", "compras", "adocao", "adoção", "crescimento", "forte",
+    }
+    negative = {
+        "queda", "caiu", "cai", "perda", "perdas", "medo", "pessimismo",
+        "bearish", "negativo", "negativa", "crise", "venda", "vendas",
+        "recuo", "colapso", "risco", "fraco", "fraqueza",
+    }
+    words = set(text.lower().replace(",", " ").replace(".", " ").split())
+    score = len(words & positive) - len(words & negative)
+    return score
 
+
+async def get_social_sentiment(client):
     data = await get(
         client,
-        "https://lunarcrush.com/api4/public/topic/bitcoin/v1",
-        headers={"Authorization": f"Bearer {LUNARCRUSH_API_KEY}"},
+        f"{REDDIT}/r/Bitcoin/search.json",
+        {
+            "q": "bitcoin",
+            "restrict_sr": "on",
+            "sort": "new",
+            "limit": 50,
+            "raw_json": 1,
+        },
+        headers={"User-Agent": "btc-mcp/1.0 public-market-data"},
     )
     if not data:
-        return status(None, "LunarCrush")
+        return {
+            "status": "indisponivel",
+            "fonte": "Reddit público",
+            "explicacao": "Não foi possível consultar as publicações públicas do Reddit agora.",
+        }
 
-    return status(data.get("data", data), "LunarCrush")
+    posts = []
+    scores = []
+    for child in data.get("data", {}).get("children", []):
+        item = child.get("data", {})
+        title = item.get("title", "")
+        body = item.get("selftext", "")
+        text = f"{title} {body}".strip()
+        if not text:
+            continue
+        score = sentiment_score(text)
+        scores.append(score)
+        posts.append(
+            {
+                "titulo": title,
+                "pontuacao_reddit": item.get("score", 0),
+                "comentarios": item.get("num_comments", 0),
+                "sentimento_textual": "positivo" if score > 0 else "negativo" if score < 0 else "neutro",
+            }
+        )
+
+    total = sum(scores)
+    return {
+        "status": "ok",
+        "fonte": "Reddit público",
+        "publicacoes_analisadas": len(posts),
+        "sentimento_textual": "positivo" if total > 0 else "negativo" if total < 0 else "neutro",
+        "pontuacao": total,
+        "publicacoes": posts[:20],
+        "explicacao": "É uma leitura simples do texto de publicações públicas, não um indicador profissional de sentimento.",
+    }
 
 
 async def get_whales(client):
-    result = {}
-
-    if GLASSNODE_API_KEY:
-        headers = {"X-Api-Key": GLASSNODE_API_KEY}
-        whale_in, whale_out = await asyncio.gather(
-            get(
-                client,
-                "https://api.glassnode.com/v1/metrics/transactions/transfers_volume_whales_to_exchanges_sum",
-                {"a": "BTC", "i": "24h", "f": "json"},
-                headers,
-            ),
-            get(
-                client,
-                "https://api.glassnode.com/v1/metrics/transactions/transfers_volume_exchanges_to_whales_sum",
-                {"a": "BTC", "i": "24h", "f": "json"},
-                headers,
-            ),
-        )
-        result["glassnode"] = {
-            "baleias_para_exchanges": whale_in[-1] if whale_in else None,
-            "exchanges_para_baleias": whale_out[-1] if whale_out else None,
-            "explicacao": "Glassnode considera baleias como entidades que possuem pelo menos 1.000 BTC."
-        }
-
-    if WHALE_ALERT_API_KEY:
-        now = int(time.time())
-        data = await get(
-            client,
-            "https://leviathan.whale-alert.io/bitcoin/transactions",
-            {
-                "api_key": WHALE_ALERT_API_KEY,
-                "symbol": "btc",
-                "min_amount": 100,
-                "limit": 20,
-                "order": "desc",
-                "start_height": 0,
-            },
-        )
-        if data:
-            result["whale_alert"] = data
-
-    if not result:
+    data = await get(client, f"{MEMPOOL}/mempool/recent")
+    if not data:
         return {
-            "status": "nao_configurado",
-            "explicacao": "Defina GLASSNODE_API_KEY e/ou WHALE_ALERT_API_KEY para acompanhar grandes movimentações."
+            "status": "indisponivel",
+            "fonte": "mempool.space",
+            "explicacao": "Não foi possível consultar as transações recentes.",
         }
 
-    return status(result, "Glassnode / Whale Alert")
+    transactions = []
+    for tx in data:
+        value_btc = float(tx.get("value", 0)) / 100_000_000
+        if value_btc >= 10:
+            transactions.append(
+                {
+                    "txid": tx.get("txid"),
+                    "valor_btc": round(value_btc, 8),
+                    "taxa_sat": tx.get("fee"),
+                    "vsize": tx.get("vsize"),
+                }
+            )
+
+    transactions.sort(key=lambda x: x["valor_btc"], reverse=True)
+    return {
+        "status": "ok",
+        "fonte": "mempool.space",
+        "transacoes_grandes_no_mempool": transactions,
+        "explicacao": "São grandes transações públicas observadas no mempool. Sem uma base paga de etiquetas, não afirmamos que uma carteira pertence a uma baleia ou exchange.",
+    }
 
 
 async def get_exchange_flows(client):
-    if not GLASSNODE_API_KEY:
-        return {
-            "status": "nao_configurado",
-            "fonte": "Glassnode",
-            "explicacao": "Defina GLASSNODE_API_KEY para receber entrada, saída e saldo líquido de BTC nas exchanges."
-        }
-
-    headers = {"X-Api-Key": GLASSNODE_API_KEY}
-    inflow, outflow, netflow = await asyncio.gather(
-        get(
-            client,
-            "https://api.glassnode.com/v1/metrics/transactions/transfers_volume_to_exchanges_sum",
-            {"a": "BTC", "i": "24h", "f": "json"},
-            headers,
-        ),
-        get(
-            client,
-            "https://api.glassnode.com/v1/metrics/transactions/transfers_volume_from_exchanges_sum",
-            {"a": "BTC", "i": "24h", "f": "json"},
-            headers,
-        ),
-        get(
-            client,
-            "https://api.glassnode.com/v1/metrics/transactions/transfers_volume_exchanges_net",
-            {"a": "BTC", "i": "24h", "f": "json"},
-            headers,
-        ),
-    )
-
     return {
-        "status": "ok",
-        "fonte": "Glassnode",
-        "entrada_24h_btc": inflow[-1] if inflow else None,
-        "saida_24h_btc": outflow[-1] if outflow else None,
-        "saldo_liquido_24h_btc": netflow[-1] if netflow else None,
-        "explicacao": "Saldo positivo significa mais BTC entrando nas exchanges do que saindo."
+        "status": "nao_disponivel",
+        "fonte": "dados públicos Bitcoin",
+        "entrada_24h_btc": None,
+        "saida_24h_btc": None,
+        "saldo_liquido_24h_btc": None,
+        "explicacao": "Fluxo de BTC para dentro e fora de exchanges exige identificar endereços de exchanges. Para não usar API paga ou inventar etiquetas, o projeto não estima esse valor.",
     }
 
 
@@ -270,11 +272,7 @@ async def yahoo_series(client, symbol, period_days=30):
     data = await get(
         client,
         f"{YAHOO}/{quote(symbol, safe='')}",
-        {
-            "range": f"{period_days}d",
-            "interval": "1d",
-            "events": "history",
-        },
+        {"range": f"{period_days}d", "interval": "1d", "events": "history"},
     )
     if not data:
         return []
@@ -307,18 +305,14 @@ async def get_correlations(client):
         ]
 
     btc_returns = returns(btc)
-
     for name, symbol in symbols.items():
-        values = await yahoo_series(client, symbol)
-        other = returns(values)
+        other = returns(await yahoo_series(client, symbol))
         n = min(len(btc_returns), len(other))
         if n < 5:
             result[name] = None
             continue
-        a = btc_returns[-n:]
-        b = other[-n:]
-        mean_a = statistics.mean(a)
-        mean_b = statistics.mean(b)
+        a, b = btc_returns[-n:], other[-n:]
+        mean_a, mean_b = statistics.mean(a), statistics.mean(b)
         cov = sum((x - mean_a) * (y - mean_b) for x, y in zip(a, b))
         den = math.sqrt(
             sum((x - mean_a) ** 2 for x in a)
@@ -328,9 +322,10 @@ async def get_correlations(client):
 
     return {
         "status": "ok" if result else "indisponivel",
+        "fonte": "Yahoo Finance público",
         "periodo": "últimos 30 dias",
         "correlacao_com_BTC": result,
-        "explicacao": "1 = movimento muito parecido; -1 = movimento oposto; 0 = pouca relação."
+        "explicacao": "1 = movimentos muito parecidos; -1 = movimentos opostos; 0 = pouca relação.",
     }
 
 
@@ -349,27 +344,22 @@ async def collect():
 
         bid = float(book["bids"][0][0])
         ask = float(book["asks"][0][0])
-
         bid_volume = sum(float(price) * float(qty) for price, qty in book["bids"])
         ask_volume = sum(float(price) * float(qty) for price, qty in book["asks"])
 
         liquidations = liquidations or []
         long_liq = sum(
             float(x.get("origQty", 0)) * float(x.get("price", 0))
-            for x in liquidations
-            if x.get("side") == "SELL"
+            for x in liquidations if x.get("side") == "SELL"
         )
         short_liq = sum(
             float(x.get("origQty", 0)) * float(x.get("price", 0))
-            for x in liquidations
-            if x.get("side") == "BUY"
+            for x in liquidations if x.get("side") == "BUY"
         )
 
         snapshot = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "symbol": SYMBOL,
-
-            # Campos simples para o predictor.
             "price": float(ticker["lastPrice"]),
             "volume_24h": float(ticker["quoteVolume"]),
             "bid": bid,
@@ -377,7 +367,6 @@ async def collect():
             "spread": ask - bid,
             "funding_rate": float((funding or {}).get("lastFundingRate", 0)),
             "open_interest": float((oi or {}).get("openInterest", 0)),
-
             "mercado": {
                 "preco_atual_usd": float(ticker["lastPrice"]),
                 "variacao_24h_percentual": float(ticker["priceChangePercent"]),
@@ -385,7 +374,6 @@ async def collect():
                 "maxima_24h_usd": float(ticker["highPrice"]),
                 "minima_24h_usd": float(ticker["lowPrice"]),
             },
-
             "order_book": {
                 "melhor_compra": bid,
                 "melhor_venda": ask,
@@ -396,7 +384,6 @@ async def collect():
                 "volume_compras_usd": bid_volume,
                 "volume_vendas_usd": ask_volume,
             },
-
             "derivativos": {
                 "funding_rate": float((funding or {}).get("lastFundingRate", 0)),
                 "open_interest_btc": float((oi or {}).get("openInterest", 0)),
@@ -408,25 +395,36 @@ async def collect():
             },
         }
 
-        # Dados externos mais lentos são atualizados a cada 5 minutos.
         previous = r.get("btc:latest")
         previous_data = json.loads(previous) if previous else {}
         refresh_extra = time.time() - float(r.get("btc:extras_ts") or 0) >= 300
-        names = ["opcoes", "on_chain", "noticias", "sentimento_social", "grandes_carteiras", "fluxo_exchanges", "correlacoes"]
-        extra = await asyncio.gather(
-            get_options(client),
-            get_onchain(client),
-            get_news(client),
-            get_social_sentiment(client),
-            get_whales(client),
-            get_exchange_flows(client),
-            get_correlations(client),
-            return_exceptions=True,
-        ) if refresh_extra else [previous_data.get(name) for name in names]
+        names = [
+            "opcoes",
+            "on_chain",
+            "noticias",
+            "sentimento_social",
+            "grandes_carteiras",
+            "fluxo_exchanges",
+            "correlacoes",
+        ]
 
         if refresh_extra:
+            extra = await asyncio.gather(
+                get_options(client),
+                get_onchain(client),
+                get_news(client),
+                get_social_sentiment(client),
+                get_whales(client),
+                get_exchange_flows(client),
+                get_correlations(client),
+                return_exceptions=True,
+            )
             for name, value in zip(names, extra):
-                snapshot[name] = value if not isinstance(value, Exception) else {"status": "erro", "mensagem": str(value)}
+                snapshot[name] = (
+                    value
+                    if not isinstance(value, Exception)
+                    else {"status": "erro", "mensagem": str(value)}
+                )
             r.set("btc:extras_ts", str(time.time()))
         else:
             for name in names:
@@ -435,15 +433,16 @@ async def collect():
 
         snapshot["volatilidade"] = calculate_volatility()
 
-        r.set("btc:latest", json.dumps(snapshot, ensure_ascii=False))
-        r.lpush("btc:snapshots", json.dumps(snapshot, ensure_ascii=False))
+        payload = json.dumps(snapshot, ensure_ascii=False)
+        r.set("btc:latest", payload)
+        r.lpush("btc:snapshots", payload)
         r.ltrim("btc:snapshots", 0, 20000)
 
         with psycopg.connect(DATABASE_URL) as conn:
             conn.execute(
                 """
-                INSERT INTO market_snapshots (ts, symbol, price, volume_24h, spread,
-                                              funding_rate, open_interest, data)
+                INSERT INTO market_snapshots
+                    (ts, symbol, price, volume_24h, spread, funding_rate, open_interest, data)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
                 """,
                 (
@@ -454,12 +453,12 @@ async def collect():
                     snapshot["spread"],
                     snapshot["funding_rate"],
                     snapshot["open_interest"],
-                    json.dumps(snapshot, ensure_ascii=False),
+                    payload,
                 ),
             )
             conn.commit()
 
-        print(json.dumps(snapshot, ensure_ascii=False), flush=True)
+        print(payload, flush=True)
 
 
 async def main():
