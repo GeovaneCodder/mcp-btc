@@ -61,6 +61,19 @@ services:
       predictor:
         condition: service_started
 
+  dashboard:
+    build: ./dashboard
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      PREDICTOR_URL: http://predictor:8001
+    ports:
+      - "8080:8080"
+    depends_on:
+      predictor:
+        condition: service_started
+      redis:
+        condition: service_started
+
 volumes:
   postgres_data:
   redis_data:
