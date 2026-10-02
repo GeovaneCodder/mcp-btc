@@ -51,7 +51,18 @@ function pct(value: number | undefined) {
 }
 
 function formatChartTime(timestamp: string) {
-  return new Date(timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const date = new Date(timestamp);
+
+  if (Number.isNaN(date.getTime())) return "Data indisponível";
+
+  return date.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
 }
 
 function chartPoint(index: number) {
@@ -231,7 +242,9 @@ onBeforeUnmount(() => {
         <div class="chart-wrap" @mousemove="handleChartMove" @mouseleave="hideChartTooltip">
           <canvas ref="chart"></canvas>
           <div v-if="chartTooltip.visible" class="chart-tooltip" :style="{ left: `${chartTooltip.x}px`, top: `${chartTooltip.y}px` }">
-            <span>{{ chartTooltip.time }}</span>
+            <span>Data e hora</span>
+            <strong>{{ chartTooltip.time }}</strong>
+            <span>Preço</span>
             <strong>{{ money(chartTooltip.price) }}</strong>
           </div>
         </div>
