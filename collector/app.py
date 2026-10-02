@@ -440,6 +440,11 @@ async def collect():
         r.lpush("btc:snapshots", payload)
         r.ltrim("btc:snapshots", 0, 20000)
 
+        # Publica o snapshot para o dashboard em tempo real.
+        # O WebSocket do dashboard escuta este canal e atualiza a interface
+        # a cada nova coleta, sem depender de recarregar a página.
+        r.publish("btc:updates", payload)
+
         with psycopg.connect(DATABASE_URL) as conn:
             conn.execute(
                 """
