@@ -20,6 +20,10 @@ INTERVAL = int(os.getenv("INTERVAL_SECONDS", "60"))
 
 BINANCE = "https://api.binance.com"
 BINANCE_FUTURES = "https://fapi.binance.com"
+KRAKEN = "https://api.kraken.com/0/public"
+KRAKEN_FUTURES = "https://futures.kraken.com/derivatives/api/v3"
+KRAKEN_SPOT_PAIR = "XBTUSD"
+KRAKEN_FUTURES_SYMBOL = "PI_XBTUSD"
 DERIBIT = "https://www.deribit.com/api/v2"
 MEMPOOL = "https://mempool.space/api"
 YAHOO = "https://query1.finance.yahoo.com/v8/finance/chart"
@@ -329,6 +333,50 @@ async def get_correlations(client):
     }
 
 
+async def get_kraken_core(client):
+    ticker, book, futures = await asyncio.gather(
+        get(client, f"{KRAKEN}/Ticker", {"pair": KRAKEN_SPOT_PAIR}),
+        get(client, f"{KRAKEN}/Depth", {"pair": KRAKEN_SPOT_PAIR, "count": 10}),
+        get(client, f"{KRAKEN_FUTURES}/tickers"),
+    )
+
+    spot = (ticker or {}).get("result", {}).get("XXBTZUSD")
+    depth = (book or {}).get("result", {}).get("XXBTZUSD")
+    futures_items = (futures or {}).get("tickers", [])
+    future = next(
+        (item for item in futures_items if item.get("symbol") == KRAKEN_FUTURES_SYMBOL),
+        None,
+    )
+
+    if not spot or not depth or not depth.get("bids") or not depth.get("asks"):
+        return None
+
+    bids = [[float(price), float(qty)] for price, qty, *_ in depth["bids"][:10]]
+    asks = [[float(price), float(qty)] for price, qty, *_ in depth["asks"][:10]]
+    bid = bids[0][0]
+    ask = asks[0][0]
+    last = float(spot["c"][0])
+    volume_base = float(spot["v"][1])
+    volume_quote = volume_base * last
+    open_price = float(spot["o"])
+    change_pct = ((last - open_price) / open_price * 100) if open_price else 0
+
+    return {
+        "ticker": {
+            "lastPrice": last,
+            "quoteVolume": volume_quote,
+            "priceChangePercent": change_pct,
+            "highPrice": float(spot["h"][1]),
+            "lowPrice": float(spot["l"][1]),
+        },
+        "book": {"bids": bids, "asks": asks},
+        "funding": float((future or {}).get("fundingRate", 0) or 0),
+        "open_interest": float((future or {}).get("openInterest", 0) or 0),
+        "liquidations": None,
+        "source": "Kraken / Kraken Futures",
+    }
+
+
 async def collect():
     async with httpx.AsyncClient() as client:
         ticker, book, funding, oi, liquidations = await asyncio.gather(
@@ -339,8 +387,17 @@ async def collect():
             get(client, f"{BINANCE_FUTURES}/fapi/v1/allForceOrders", {"symbol": SYMBOL, "limit": 100}),
         )
 
+        source = "Binance / Binance Futures"
         if not ticker or not book:
-            raise RuntimeError("Binance não retornou os dados básicos do mercado.")
+            kraken = await get_kraken_core(client)
+            if not kraken:
+                raise RuntimeError("Binance e Kraken não retornaram os dados básicos do mercado.")
+            ticker = kraken["ticker"]
+            book = kraken["book"]
+            funding = {"lastFundingRate": kraken["funding"]}
+            oi = {"openInterest": kraken["open_interest"]}
+            liquidations = kraken["liquidations"]
+            source = kraken["source"]
 
         bid = float(book["bids"][0][0])
         ask = float(book["asks"][0][0])
@@ -362,6 +419,7 @@ async def collect():
             "timestamp": timestamp,
             "ts": timestamp,
             "symbol": SYMBOL,
+            "source": source,
             "price": float(ticker["lastPrice"]),
             "volume_24h": float(ticker["quoteVolume"]),
             "bid": bid,
@@ -393,6 +451,7 @@ async def collect():
                     "longs_usd": long_liq,
                     "shorts_usd": short_liq,
                     "quantidade_eventos": len(liquidations),
+                    "fonte": source,
                 },
             },
         }
@@ -439,10 +498,6 @@ async def collect():
         r.set("btc:latest", payload)
         r.lpush("btc:snapshots", payload)
         r.ltrim("btc:snapshots", 0, 20000)
-
-        # Publica o snapshot para o dashboard em tempo real.
-        # O WebSocket do dashboard escuta este canal e atualiza a interface
-        # a cada nova coleta, sem depender de recarregar a página.
         r.publish("btc:updates", payload)
 
         with psycopg.connect(DATABASE_URL) as conn:
