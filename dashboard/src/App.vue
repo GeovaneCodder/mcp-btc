@@ -174,8 +174,22 @@ function handleResize() {
   drawChart();
 }
 
-function resetCollectionCountdown() {
-  collectionCountdown.value = COLLECTION_INTERVAL_SECONDS;
+function syncCollectionCountdown() {
+  const timestamp = store.snapshot?.ts || store.snapshot?.timestamp;
+  if (!timestamp) {
+    collectionCountdown.value = COLLECTION_INTERVAL_SECONDS;
+    return;
+  }
+
+  const collectedAt = new Date(timestamp).getTime();
+  if (Number.isNaN(collectedAt)) {
+    collectionCountdown.value = COLLECTION_INTERVAL_SECONDS;
+    return;
+  }
+
+  const nextCollectionAt = collectedAt + COLLECTION_INTERVAL_SECONDS * 1000;
+  const remaining = Math.ceil((nextCollectionAt - Date.now()) / 1000);
+  collectionCountdown.value = Math.max(0, Math.min(COLLECTION_INTERVAL_SECONDS, remaining));
 }
 
 async function refreshDashboard() {
@@ -183,32 +197,34 @@ async function refreshDashboard() {
 
   refreshing = true;
   try {
-    // Quando a contagem chega a zero, busca novamente snapshot,
-    // histórico e previsão para manter todo o dashboard sincronizado.
+    // A contagem é calculada a partir do horário da última coleta
+    // publicada pelo collector, então todos os usuários compartilham
+    // o mesmo ciclo de coleta.
     await store.load();
+    syncCollectionCountdown();
     drawChart();
   } finally {
     refreshing = false;
-    resetCollectionCountdown();
   }
 }
 
 function startCollectionCountdown() {
-  resetCollectionCountdown();
+  syncCollectionCountdown();
 
   countdownTimer = setInterval(async () => {
-    if (collectionCountdown.value > 1) {
-      collectionCountdown.value -= 1;
+    syncCollectionCountdown();
+
+    if (collectionCountdown.value > 0) {
       return;
     }
 
-    collectionCountdown.value = 0;
     await refreshDashboard();
   }, 1000);
 }
 
 onMounted(async () => {
   await store.load();
+  syncCollectionCountdown();
   startCollectionCountdown();
 
   if (!store.prediction) {
@@ -230,9 +246,10 @@ watch(
   () => store.snapshot?.ts,
   (timestamp, previousTimestamp) => {
     if (timestamp && timestamp !== previousTimestamp) {
-      // O collector publicou uma nova coleta. Sincroniza a contagem
-      // com o ciclo real de 60 segundos.
-      resetCollectionCountdown();
+      // O collector publicou uma nova coleta. O contador passa a ser
+      // calculado a partir do timestamp dessa coleta, mantendo o mesmo
+      // ciclo para todos os usuários.
+      syncCollectionCountdown();
       requestAnimationFrame(() => drawChart());
     }
   }
