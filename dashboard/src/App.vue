@@ -6,7 +6,8 @@ import { getPrediction } from "./services/api";
 
 const store = useMarketStore();
 useMarketWebSocket();
-const chart = ref<HTMLCanvasElement | null>(null);\nconst chartTooltip = ref({ visible: false, x: 0, y: 0, time: "", price: 0 });
+const chart = ref<HTMLCanvasElement | null>(null);
+const chartTooltip = ref({ visible: false, x: 0, y: 0, time: "", price: 0 });
 
 const priceChange = computed(() => {
   const h = store.history;
@@ -43,7 +44,52 @@ function pct(value: number | undefined) {
   return (value * 100).toFixed(4) + "%";
 }
 
-function formatChartTime(timestamp: string) {\n  return new Date(timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });\n}\n\nfunction chartPoint(index: number) {\n  const c = chart.value;\n  const history = store.history;\n  if (!c || history.length < 2) return null;\n  const rect = c.getBoundingClientRect();\n  const pad = 18;\n  const prices = history.map(x => x.price);\n  const min = Math.min(...prices);\n  const max = Math.max(...prices);\n  const p = history[index].price;\n  return {\n    x: pad + (rect.width - pad * 2) * index / (history.length - 1),\n    y: rect.height - pad - ((p - min) / Math.max(max - min, 0.000001)) * (rect.height - pad * 2)\n  };\n}\n\nfunction handleChartMove(event: MouseEvent) {\n  const c = chart.value;\n  if (!c || store.history.length < 2) return;\n  const rect = c.getBoundingClientRect();\n  const pad = 18;\n  const usableWidth = rect.width - pad * 2;\n  const raw = Math.round(((event.clientX - rect.left - pad) / usableWidth) * (store.history.length - 1));\n  const index = Math.max(0, Math.min(store.history.length - 1, raw));\n  const point = chartPoint(index);\n  if (!point) return;\n  chartTooltip.value = {\n    visible: true,\n    x: point.x,\n    y: point.y,\n    time: formatChartTime(store.history[index].ts),\n    price: store.history[index].price\n  };\n  drawChart(index);\n}\n\nfunction hideChartTooltip() {\n  chartTooltip.value.visible = false;\n  drawChart();\n}\n\nfunction drawChart(activeIndex?: number) {
+function formatChartTime(timestamp: string) {
+  return new Date(timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function chartPoint(index: number) {
+  const c = chart.value;
+  const history = store.history;
+  if (!c || history.length < 2) return null;
+  const rect = c.getBoundingClientRect();
+  const pad = 18;
+  const prices = history.map(x => x.price);
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  const p = history[index].price;
+  return {
+    x: pad + (rect.width - pad * 2) * index / (history.length - 1),
+    y: rect.height - pad - ((p - min) / Math.max(max - min, 0.000001)) * (rect.height - pad * 2)
+  };
+}
+
+function handleChartMove(event: MouseEvent) {
+  const c = chart.value;
+  if (!c || store.history.length < 2) return;
+  const rect = c.getBoundingClientRect();
+  const pad = 18;
+  const usableWidth = rect.width - pad * 2;
+  const raw = Math.round(((event.clientX - rect.left - pad) / usableWidth) * (store.history.length - 1));
+  const index = Math.max(0, Math.min(store.history.length - 1, raw));
+  const point = chartPoint(index);
+  if (!point) return;
+  chartTooltip.value = {
+    visible: true,
+    x: point.x,
+    y: point.y,
+    time: formatChartTime(store.history[index].ts),
+    price: store.history[index].price
+  };
+  drawChart(index);
+}
+
+function hideChartTooltip() {
+  chartTooltip.value.visible = false;
+  drawChart();
+}
+
+function drawChart(activeIndex?: number) {
   const c = chart.value;
   if (!c || store.history.length < 2) return;
   const ctx = c.getContext("2d");
@@ -153,7 +199,13 @@ onMounted(async () => {
           </div>
           <span class="badge">Coleta a cada 15 segundos</span>
         </div>
-        <div class="chart-wrap" @mousemove="handleChartMove" @mouseleave="hideChartTooltip">\n          <canvas ref="chart"></canvas>\n          <div v-if="chartTooltip.visible" class="chart-tooltip" :style="{ left: `${chartTooltip.x}px`, top: `${chartTooltip.y}px` }">\n            <span>{{ chartTooltip.time }}</span>\n            <strong>{{ money(chartTooltip.price) }}</strong>\n          </div>\n        </div>
+        <div class="chart-wrap" @mousemove="handleChartMove" @mouseleave="hideChartTooltip">
+          <canvas ref="chart"></canvas>
+          <div v-if="chartTooltip.visible" class="chart-tooltip" :style="{ left: `${chartTooltip.x}px`, top: `${chartTooltip.y}px` }">
+            <span>{{ chartTooltip.time }}</span>
+            <strong>{{ money(chartTooltip.price) }}</strong>
+          </div>
+        </div>
       </article>
 
       <article class="card book-card">
