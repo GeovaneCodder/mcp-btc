@@ -10,7 +10,7 @@ services:
     persistenceMode: off
 
   - type: web
-    name: btc-mcp
+    name: mcp-btc
     runtime: docker
     plan: free
     region: virginia
