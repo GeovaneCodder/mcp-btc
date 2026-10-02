@@ -3,11 +3,16 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useMarketStore } from "./stores/market";
 import { useMarketWebSocket } from "./composables/useMarketWebSocket";
 import { getPrediction } from "./services/api";
+import type { Prediction, Snapshot } from "./types";
 
 const store = useMarketStore();
 useMarketWebSocket();
 const chart = ref<HTMLCanvasElement | null>(null);
 const chartTooltip = ref({ visible: false, x: 0, y: 0, time: "", price: 0 });
+const COLLECTION_INTERVAL_SECONDS = 60;
+const collectionCountdown = ref(COLLECTION_INTERVAL_SECONDS);
+let countdownTimer: ReturnType<typeof setInterval> | null = null;
+let refreshing = false;
 
 const priceChange = computed(() => {
   const h = store.history;
@@ -16,11 +21,16 @@ const priceChange = computed(() => {
   return ((h[h.length - 1].price - previous) / previous) * 100;
 });
 
-const directionLabel = computed(() => ({
+const directionLabels: Record<Prediction["direction"], string> = {
   UP: "Alta",
   DOWN: "Baixa",
   SIDEWAYS: "Lateral"
-}[store.prediction?.direction ?? "SIDEWAYS"]));
+};
+
+const directionLabel = computed(() => {
+  const direction: Prediction["direction"] = store.prediction?.direction ?? "SIDEWAYS";
+  return directionLabels[direction];
+});
 
 function money(value: number | undefined) {
   if (value == null) return "—";
@@ -44,8 +54,21 @@ function pct(value: number | undefined) {
   return (value * 100).toFixed(4) + "%";
 }
 
-function formatChartTime(timestamp: string) {
-  return new Date(timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+function formatChartTime(timestamp: string | undefined) {
+  if (!timestamp) return "Data indisponível";
+
+  const date = new Date(timestamp);
+
+  if (Number.isNaN(date.getTime())) return "Data indisponível";
+
+  return date.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
 }
 
 function chartPoint(index: number) {
@@ -54,7 +77,7 @@ function chartPoint(index: number) {
   if (!c || history.length < 2) return null;
   const rect = c.getBoundingClientRect();
   const pad = 18;
-  const prices = history.map(x => x.price);
+  const prices = history.map((x: Snapshot) => x.price);
   const min = Math.min(...prices);
   const max = Math.max(...prices);
   const p = history[index].price;
@@ -78,7 +101,7 @@ function handleChartMove(event: MouseEvent) {
     visible: true,
     x: point.x,
     y: point.y,
-    time: formatChartTime(store.history[index].ts),
+    time: formatChartTime(store.history[index].ts || store.history[index].timestamp),
     price: store.history[index].price
   };
   drawChart(index);
@@ -104,7 +127,7 @@ function drawChart(activeIndex?: number) {
   const w = rect.width;
   const h = rect.height;
   const pad = 18;
-  const prices = store.history.map(x => x.price);
+  const prices = store.history.map((x: Snapshot) => x.price);
   const min = Math.min(...prices);
   const max = Math.max(...prices);
 
@@ -121,7 +144,7 @@ function drawChart(activeIndex?: number) {
   }
 
   ctx.beginPath();
-  prices.forEach((p, i) => {
+  prices.forEach((p: number, i: number) => {
     const x = pad + (w - pad * 2) * i / (prices.length - 1);
     const y = h - pad - ((p - min) / Math.max(max - min, 0.000001)) * (h - pad * 2);
     i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
@@ -130,10 +153,63 @@ function drawChart(activeIndex?: number) {
   ctx.strokeStyle = "#7dd3fc";
   ctx.lineWidth = 2;
   ctx.stroke();
+
+  if (activeIndex != null) {
+    const point = chartPoint(activeIndex);
+    if (point) {
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = "#7dd3fc";
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, 9, 0, Math.PI * 2);
+      ctx.strokeStyle = "#7dd3fc66";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+}
+
+function handleResize() {
+  drawChart();
+}
+
+function resetCollectionCountdown() {
+  collectionCountdown.value = COLLECTION_INTERVAL_SECONDS;
+}
+
+async function refreshDashboard() {
+  if (refreshing) return;
+
+  refreshing = true;
+  try {
+    // Quando a contagem chega a zero, busca novamente snapshot,
+    // histórico e previsão para manter todo o dashboard sincronizado.
+    await store.load();
+    drawChart();
+  } finally {
+    refreshing = false;
+    resetCollectionCountdown();
+  }
+}
+
+function startCollectionCountdown() {
+  resetCollectionCountdown();
+
+  countdownTimer = setInterval(async () => {
+    if (collectionCountdown.value > 1) {
+      collectionCountdown.value -= 1;
+      return;
+    }
+
+    collectionCountdown.value = 0;
+    await refreshDashboard();
+  }, 1000);
 }
 
 onMounted(async () => {
   await store.load();
+  startCollectionCountdown();
 
   if (!store.prediction) {
     try {
@@ -142,8 +218,25 @@ onMounted(async () => {
   }
 
   drawChart();
-  window.addEventListener("resize", () => drawChart());
+  window.addEventListener("resize", handleResize);
 });
+
+onBeforeUnmount(() => {
+  window.removeEventListener("resize", handleResize);
+  if (countdownTimer) clearInterval(countdownTimer);
+});
+
+watch(
+  () => store.snapshot?.ts,
+  (timestamp, previousTimestamp) => {
+    if (timestamp && timestamp !== previousTimestamp) {
+      // O collector publicou uma nova coleta. Sincroniza a contagem
+      // com o ciclo real de 60 segundos.
+      resetCollectionCountdown();
+      requestAnimationFrame(() => drawChart());
+    }
+  }
+);
 </script>
 
 <template>
@@ -197,12 +290,14 @@ onMounted(async () => {
             <span class="label">Movimento do preço</span>
             <h2>Histórico em tempo real</h2>
           </div>
-          <span class="badge">Coleta a cada 15 segundos</span>
+          <span class="badge">Próxima coleta em {{ collectionCountdown }}s</span>
         </div>
         <div class="chart-wrap" @mousemove="handleChartMove" @mouseleave="hideChartTooltip">
           <canvas ref="chart"></canvas>
           <div v-if="chartTooltip.visible" class="chart-tooltip" :style="{ left: `${chartTooltip.x}px`, top: `${chartTooltip.y}px` }">
-            <span>{{ chartTooltip.time }}</span>
+            <span>Data e hora</span>
+            <strong>{{ chartTooltip.time }}</strong>
+            <span>Preço</span>
             <strong>{{ money(chartTooltip.price) }}</strong>
           </div>
         </div>

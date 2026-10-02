@@ -16,9 +16,14 @@ import redis
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://btc:btc@postgres:5432/btc_ai")
 SYMBOL = os.getenv("SYMBOL", "BTCUSDT")
-INTERVAL = int(os.getenv("INTERVAL_SECONDS", "15"))
-BASE = "https://api.binance.com"
-FAPI = "https://fapi.binance.com"
+INTERVAL = int(os.getenv("INTERVAL_SECONDS", "60"))
+
+BINANCE = "https://api.binance.com"
+BINANCE_FUTURES = "https://fapi.binance.com"
+DERIBIT = "https://www.deribit.com/api/v2"
+MEMPOOL = "https://mempool.space/api"
+YAHOO = "https://query1.finance.yahoo.com/v8/finance/chart"
+REDDIT = "https://www.reddit.com"
 
 r = redis.from_url(REDIS_URL, decode_responses=True)
 
@@ -46,8 +51,10 @@ async def collect():
         bid_volume = sum(float(p) * float(q) for p, q in book["bids"])
         ask_volume = sum(float(p) * float(q) for p, q in book["asks"])
 
+        timestamp = datetime.now(timezone.utc).isoformat()
         snapshot = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": timestamp,
+            "ts": timestamp,
             "symbol": SYMBOL,
 
             # Campos simples para o predictor.
@@ -67,6 +74,11 @@ async def collect():
         r.set("btc:latest", json.dumps(snapshot))
         r.lpush("btc:snapshots", json.dumps(snapshot))
         r.ltrim("btc:snapshots", 0, 20000)
+
+        # Publica o snapshot para o dashboard em tempo real.
+        # O WebSocket do dashboard escuta este canal e atualiza a interface
+        # a cada nova coleta, sem depender de recarregar a página.
+        r.publish("btc:updates", payload)
 
         with psycopg.connect(DATABASE_URL) as conn:
             conn.execute("""
