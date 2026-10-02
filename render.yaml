@@ -1,0 +1,46 @@
+services:
+  - type: keyvalue
+    name: btc-redis
+    plan: free
+    region: virginia
+    ipAllowList:
+      - source: 0.0.0.0/0
+        description: Allow application connections
+    maxmemoryPolicy: noeviction
+    persistenceMode: off
+
+  - type: web
+    name: btc-mcp
+    runtime: docker
+    plan: free
+    region: virginia
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: PORT
+        value: "8080"
+      - key: SYMBOL
+        value: BTCUSDT
+      - key: INTERVAL_SECONDS
+        value: "60"
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: btc-redis
+          property: connectionString
+      - key: DATABASE_URL
+        fromDatabase:
+          name: btc-postgres
+          property: connectionString
+      - key: PREDICTOR_URL
+        value: http://localhost:8001
+
+databases:
+  - name: btc-postgres
+    plan: free
+    region: virginia
+    postgresMajorVersion: "17"
+    databaseName: btc_ai
+    user: btc
