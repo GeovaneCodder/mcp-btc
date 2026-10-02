@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useMarketStore } from "./stores/market";
 import { useMarketWebSocket } from "./composables/useMarketWebSocket";
 import { getPrediction } from "./services/api";
+import type { Prediction, Snapshot } from "./types";
 
 const store = useMarketStore();
 useMarketWebSocket();
@@ -16,14 +17,14 @@ const priceChange = computed(() => {
   return ((h[h.length - 1].price - previous) / previous) * 100;
 });
 
-const directionLabels: Record<"UP" | "DOWN" | "SIDEWAYS", string> = {
+const directionLabels: Record<Prediction["direction"], string> = {
   UP: "Alta",
   DOWN: "Baixa",
   SIDEWAYS: "Lateral"
 };
 
 const directionLabel = computed(() => {
-  const direction = store.prediction?.direction ?? "SIDEWAYS";
+  const direction: Prediction["direction"] = store.prediction?.direction ?? "SIDEWAYS";
   return directionLabels[direction];
 });
 
@@ -59,7 +60,7 @@ function chartPoint(index: number) {
   if (!c || history.length < 2) return null;
   const rect = c.getBoundingClientRect();
   const pad = 18;
-  const prices = history.map(x => x.price);
+  const prices = history.map((x: Snapshot) => x.price);
   const min = Math.min(...prices);
   const max = Math.max(...prices);
   const p = history[index].price;
@@ -109,7 +110,7 @@ function drawChart(activeIndex?: number) {
   const w = rect.width;
   const h = rect.height;
   const pad = 18;
-  const prices = store.history.map(x => x.price);
+  const prices = store.history.map((x: Snapshot) => x.price);
   const min = Math.min(...prices);
   const max = Math.max(...prices);
 
@@ -126,7 +127,7 @@ function drawChart(activeIndex?: number) {
   }
 
   ctx.beginPath();
-  prices.forEach((p, i) => {
+  prices.forEach((p: number, i: number) => {
     const x = pad + (w - pad * 2) * i / (prices.length - 1);
     const y = h - pad - ((p - min) / Math.max(max - min, 0.000001)) * (h - pad * 2);
     i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
