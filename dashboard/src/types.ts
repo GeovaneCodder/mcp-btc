@@ -1,5 +1,6 @@
 export interface Snapshot {
-  ts: string;\n  timestamp?: string;
+  ts: string;
+  timestamp?: string;
   symbol: string;
   price: number;
   volume_24h: number;
