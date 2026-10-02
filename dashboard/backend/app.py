@@ -20,15 +20,33 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 def health():
     return {"status": "ok"}
 
+def normalize_snapshot(data):
+    if not isinstance(data, dict):
+        return data
+
+    # Compatibilidade com snapshots antigos que gravaram apenas `timestamp`.
+    timestamp = data.get("ts") or data.get("timestamp")
+    if timestamp:
+        data["ts"] = str(timestamp)
+        data["timestamp"] = str(timestamp)
+
+    # Garante os campos usados pelo dashboard mesmo em snapshots antigos.
+    data.setdefault("bid_volume", data.get("order_book", {}).get("volume_compras_usd", 0))
+    data.setdefault("ask_volume", data.get("order_book", {}).get("volume_vendas_usd", 0))
+    liquidacoes = data.get("derivativos", {}).get("liquidacoes", {})
+    data.setdefault("liquidation_long", liquidacoes.get("longs_usd", 0))
+    data.setdefault("liquidation_short", liquidacoes.get("shorts_usd", 0))
+    return data
+
 @app.get("/api/snapshot")
 def snapshot():
     raw = r.get("btc:latest")
-    return json.loads(raw) if raw else {"status": "no_data"}
+    return normalize_snapshot(json.loads(raw)) if raw else {"status": "no_data"}
 
 @app.get("/api/history")
 def history(limit: int = 200):
     limit = max(1, min(limit, 1000))
-    return [json.loads(x) for x in r.lrange("btc:snapshots", 0, limit - 1)][::-1]
+    return [normalize_snapshot(json.loads(x)) for x in r.lrange("btc:snapshots", 0, limit - 1)][::-1]
 
 @app.get("/api/predict/4h")
 async def predict():
