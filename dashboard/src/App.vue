@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useMarketStore } from "./stores/market";
 import { useMarketWebSocket } from "./composables/useMarketWebSocket";
 import { getPrediction } from "./services/api";
@@ -9,6 +9,10 @@ const store = useMarketStore();
 useMarketWebSocket();
 const chart = ref<HTMLCanvasElement | null>(null);
 const chartTooltip = ref({ visible: false, x: 0, y: 0, time: "", price: 0 });
+const COLLECTION_INTERVAL_SECONDS = 15;
+const collectionCountdown = ref(COLLECTION_INTERVAL_SECONDS);
+let countdownTimer: ReturnType<typeof setInterval> | null = null;
+let refreshing = false;
 
 const priceChange = computed(() => {
   const h = store.history;
@@ -170,8 +174,42 @@ function handleResize() {
   drawChart();
 }
 
+function resetCollectionCountdown() {
+  collectionCountdown.value = COLLECTION_INTERVAL_SECONDS;
+}
+
+async function refreshDashboard() {
+  if (refreshing) return;
+
+  refreshing = true;
+  try {
+    // Quando a contagem chega a zero, busca novamente snapshot,
+    // histórico e previsão para manter todo o dashboard sincronizado.
+    await store.load();
+    drawChart();
+  } finally {
+    refreshing = false;
+    resetCollectionCountdown();
+  }
+}
+
+function startCollectionCountdown() {
+  resetCollectionCountdown();
+
+  countdownTimer = setInterval(async () => {
+    if (collectionCountdown.value > 1) {
+      collectionCountdown.value -= 1;
+      return;
+    }
+
+    collectionCountdown.value = 0;
+    await refreshDashboard();
+  }, 1000);
+}
+
 onMounted(async () => {
   await store.load();
+  startCollectionCountdown();
 
   if (!store.prediction) {
     try {
@@ -185,7 +223,20 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener("resize", handleResize);
+  if (countdownTimer) clearInterval(countdownTimer);
 });
+
+watch(
+  () => store.snapshot?.ts,
+  (timestamp, previousTimestamp) => {
+    if (timestamp && timestamp !== previousTimestamp) {
+      // O collector publicou uma nova coleta. Sincroniza a contagem
+      // com o ciclo real de 15 segundos.
+      resetCollectionCountdown();
+      requestAnimationFrame(() => drawChart());
+    }
+  }
+);
 </script>
 
 <template>
@@ -239,7 +290,7 @@ onBeforeUnmount(() => {
             <span class="label">Movimento do preço</span>
             <h2>Histórico em tempo real</h2>
           </div>
-          <span class="badge">Coleta a cada 15 segundos</span>
+          <span class="badge">Próxima coleta em {{ collectionCountdown }}s</span>
         </div>
         <div class="chart-wrap" @mousemove="handleChartMove" @mouseleave="hideChartTooltip">
           <canvas ref="chart"></canvas>
