@@ -16,7 +16,7 @@ import redis
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://btc:btc@postgres:5432/btc_ai")
 SYMBOL = os.getenv("SYMBOL", "BTCUSDT")
-INTERVAL = int(os.getenv("INTERVAL_SECONDS", "15"))
+INTERVAL = int(os.getenv("INTERVAL_SECONDS", "60"))
 
 BINANCE = "https://api.binance.com"
 BINANCE_FUTURES = "https://fapi.binance.com"
