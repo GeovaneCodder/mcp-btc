@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useMarketStore } from "./stores/market";
 import { useMarketWebSocket } from "./composables/useMarketWebSocket";
 import { getPrediction } from "./services/api";
@@ -130,6 +130,25 @@ function drawChart(activeIndex?: number) {
   ctx.strokeStyle = "#7dd3fc";
   ctx.lineWidth = 2;
   ctx.stroke();
+
+  if (activeIndex != null) {
+    const point = chartPoint(activeIndex);
+    if (point) {
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = "#7dd3fc";
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, 9, 0, Math.PI * 2);
+      ctx.strokeStyle = "#7dd3fc66";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+}
+
+function handleResize() {
+  drawChart();
 }
 
 onMounted(async () => {
@@ -142,7 +161,11 @@ onMounted(async () => {
   }
 
   drawChart();
-  window.addEventListener("resize", () => drawChart());
+  window.addEventListener("resize", handleResize);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("resize", handleResize);
 });
 </script>
 
