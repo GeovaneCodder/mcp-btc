@@ -142,7 +142,7 @@ onMounted(async () => {
   }
 
   drawChart();
-  window.addEventListener("resize", drawChart);
+  window.addEventListener("resize", () => drawChart());
 });
 </script>
 
