@@ -357,8 +357,10 @@ async def collect():
             for x in liquidations if x.get("side") == "BUY"
         )
 
+        timestamp = datetime.now(timezone.utc).isoformat()
         snapshot = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": timestamp,
+            "ts": timestamp,
             "symbol": SYMBOL,
             "price": float(ticker["lastPrice"]),
             "volume_24h": float(ticker["quoteVolume"]),
