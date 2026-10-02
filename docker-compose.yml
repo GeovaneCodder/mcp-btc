@@ -31,7 +31,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql://btc:btc@postgres:5432/btc_ai
       SYMBOL: BTCUSDT
-      INTERVAL_SECONDS: 15
+      INTERVAL_SECONDS: 60
       PREDICTOR_URL: http://localhost:8001
     ports:
       - "8000:8000"
