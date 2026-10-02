@@ -50,7 +50,9 @@ function pct(value: number | undefined) {
   return (value * 100).toFixed(4) + "%";
 }
 
-function formatChartTime(timestamp: string) {
+function formatChartTime(timestamp: string | undefined) {
+  if (!timestamp) return "Data indisponível";
+
   const date = new Date(timestamp);
 
   if (Number.isNaN(date.getTime())) return "Data indisponível";
@@ -95,7 +97,7 @@ function handleChartMove(event: MouseEvent) {
     visible: true,
     x: point.x,
     y: point.y,
-    time: formatChartTime(store.history[index].ts),
+    time: formatChartTime(store.history[index].ts || store.history[index].timestamp),
     price: store.history[index].price
   };
   drawChart(index);
