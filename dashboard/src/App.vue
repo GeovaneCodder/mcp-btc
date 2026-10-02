@@ -9,7 +9,7 @@ const store = useMarketStore();
 useMarketWebSocket();
 const chart = ref<HTMLCanvasElement | null>(null);
 const chartTooltip = ref({ visible: false, x: 0, y: 0, time: "", price: 0 });
-const COLLECTION_INTERVAL_SECONDS = 15;
+const COLLECTION_INTERVAL_SECONDS = 60;
 const collectionCountdown = ref(COLLECTION_INTERVAL_SECONDS);
 let countdownTimer: ReturnType<typeof setInterval> | null = null;
 let refreshing = false;
@@ -231,7 +231,7 @@ watch(
   (timestamp, previousTimestamp) => {
     if (timestamp && timestamp !== previousTimestamp) {
       // O collector publicou uma nova coleta. Sincroniza a contagem
-      // com o ciclo real de 15 segundos.
+      // com o ciclo real de 60 segundos.
       resetCollectionCountdown();
       requestAnimationFrame(() => drawChart());
     }
