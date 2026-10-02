@@ -16,11 +16,16 @@ const priceChange = computed(() => {
   return ((h[h.length - 1].price - previous) / previous) * 100;
 });
 
-const directionLabel = computed(() => ({
+const directionLabels: Record<"UP" | "DOWN" | "SIDEWAYS", string> = {
   UP: "Alta",
   DOWN: "Baixa",
   SIDEWAYS: "Lateral"
-}[store.prediction?.direction ?? "SIDEWAYS"]));
+};
+
+const directionLabel = computed(() => {
+  const direction = store.prediction?.direction ?? "SIDEWAYS";
+  return directionLabels[direction];
+});
 
 function money(value: number | undefined) {
   if (value == null) return "—";
