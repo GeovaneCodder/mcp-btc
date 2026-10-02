@@ -151,7 +151,7 @@ onMounted(async () => {
     <header class="topbar">
       <div>
         <span class="eyebrow">BTC / USDT</span>
-        <h1>Inteligência de Mercado</h1>
+        <h1>Inteligência de Mercado NN</h1>
       </div>
 
       <div class="live" :class="{ offline: !store.connected }">
