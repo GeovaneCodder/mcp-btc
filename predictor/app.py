@@ -48,7 +48,7 @@ def predict_4h():
         "volatility_per_sample": volatility,
         "samples": len(data),
         "model": "momentum_baseline",
-        "warning": "MVP educacional; não constitui previsão financeira validada."
+        "warning": ""
     }
 
 @app.get("/health")
